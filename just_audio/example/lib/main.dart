@@ -18,6 +18,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   final _player = AudioPlayer();
+  final _player2 = AudioPlayer();
 
   @override
   void initState() {
@@ -46,6 +47,18 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     } catch (e) {
       print("Error loading audio source: $e");
     }
+
+    _player2.playbackEventStream.listen((event) {},
+        onError: (Object e, StackTrace stackTrace) {
+      print('A stream error occurred in player2: $e');
+    });
+    // Try to load audio from a source and catch any errors.
+    try {
+      await _player2.setAudioSource(AudioSource.uri(
+          Uri.parse("https://stream-uk1.radioparadise.com/aac-320")));
+    } catch (e) {
+      print("Error loading audio source: $e");
+    }
   }
 
   @override
@@ -54,6 +67,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     // Release decoders and buffers back to the operating system making them
     // available for other apps to use.
     _player.dispose();
+    _player2.dispose();
     super.dispose();
   }
 
@@ -64,6 +78,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       // if the app resumes later, it will still remember what position to
       // resume from.
       _player.stop();
+      _player2.stop();
     }
   }
 
@@ -74,6 +89,14 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           _player.positionStream,
           _player.bufferedPositionStream,
           _player.durationStream,
+          (position, bufferedPosition, duration) => PositionData(
+              position, bufferedPosition, duration ?? Duration.zero));
+
+  Stream<PositionData> get _positionDataStream2 =>
+      Rx.combineLatest3<Duration, Duration, Duration?, PositionData>(
+          _player2.positionStream,
+          _player2.bufferedPositionStream,
+          _player2.durationStream,
           (position, bufferedPosition, duration) => PositionData(
               position, bufferedPosition, duration ?? Duration.zero));
 
@@ -104,6 +127,34 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                   );
                 },
               ),
+              // Display play/pause button and volume/speed sliders.
+              ControlButtons(_player2),
+              // Display seek bar. Using StreamBuilder, this widget rebuilds
+              // each time the position, buffered position or duration changes.
+              StreamBuilder<PositionData>(
+                stream: _positionDataStream2,
+                builder: (context, snapshot) {
+                  final positionData = snapshot.data;
+                  return SeekBar(
+                    duration: positionData?.duration ?? Duration.zero,
+                    position: positionData?.position ?? Duration.zero,
+                    bufferedPosition:
+                        positionData?.bufferedPosition ?? Duration.zero,
+                    onChangeEnd: _player2.seek,
+                  );
+                },
+              ),
+              IconButton(
+                icon: Icon(Icons.audiotrack_outlined),
+                iconSize: 64.0,
+                onPressed: () async {
+                  _player.play();
+                  // ensure playing before pausing
+                  await _player.playerStateStream.any((state) => state.playing);
+                  await _player.pause();
+                  _player2.play();
+                },
+              )
             ],
           ),
         ),
